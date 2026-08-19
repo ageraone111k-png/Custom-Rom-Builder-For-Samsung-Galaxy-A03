@@ -10,11 +10,11 @@ on:
         GSI:
               description: 'GSI Image Direct Link'
               required: true
-              default: 'https://sourceforge.net/projects/andyyan-gsi/files/lineage-21-pre-qpr2-td/lineage-21.0-20260614-UNOFFICIAL-arm64_bvN.img.gz'        
+              default: 'https://github.com/naz664/ArrowOS_gsi/releases/download/v2023.10.28/ArrowOS-13.1-arm64_bgN-slim-Unofficial.img.xz'        # find some recommendations in readme (last lines)
         NAME:
               description: 'Rom Name'
               required: true
-              default: 'aosp-arm64-ab-gapps-14.0-a03.7z'
+              default: 'ArrowOS-13.1-arm64-ab-BgN-June2026-BIT9.7z' # idk bro name it anything
         VERSION:
               description: 'Baseband Version'
               required: true
@@ -43,29 +43,27 @@ jobs:
         cd lpbinary
         bash install.sh
 
-    - name: Downloading Your GSI And Extracting
+    - name: Downloading Your GSI And Extracting # i hate this part personally
       run: |
         cd lpbinary/binary
-        wget ${{ github.event.inputs.GSI }}
+        wget ${{ github.event.inputs.GSI }} -O gsi_archive
         mkdir sys
         
-        # Move whatever compressed file arrived into the processing folder
-        mv *.gz sys/ 2>/dev/null || true
-        mv *.xz sys/ 2>/dev/null || true
-        
-        cd sys
-        
-        # Auto-detect and extract based on the file extension present
-        if [ -f *.gz ]; then
-          gunzip *.gz
-        elif [ -f *.xz ]; then
-          unxz *.xz
+        # Check the magic bytes or extension type to route extraction
+        if unzip -t gsi_archive >/dev/null 2>&1; then
+          unzip gsi_archive -d sys/
+        elif file gsi_archive | grep -q 'gzip'; then
+          mv gsi_archive sys/gsi.img.gz
+          cd sys && gunzip gsi.img.gz && cd ..
+        elif file gsi_archive | grep -q 'XZ'; then
+          mv gsi_archive sys/gsi.img.xz
+          cd sys && unxz gsi.img.xz && cd ..
         fi
         
-        # Pass the raw system partition back up to the build folder
-        mv *.img ../system.img
-        cd ..
-
+        # Pull the extracted raw system partition back to the build folder root
+        mv sys/*.img system.img 2>/dev/null || mv sys/system.img system.img
+        rm -rf sys gsi_archive
+        
     - name: Preparing Files
       run: |
         cd lpbinary/binary
