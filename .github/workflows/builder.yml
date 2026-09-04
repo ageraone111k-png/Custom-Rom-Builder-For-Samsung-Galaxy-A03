@@ -73,27 +73,23 @@ jobs:
         wget https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/product.img -O product.img
         wget https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/system_ext.img -O system_ext.img 
         
-    - name: Packing
-      run: |
+        - name: Packing
+        run: |
         cd lpbinary/binary
         ./lpmake --metadata-size 65536 --super-name super --metadata-slots 3 --device super:6763315200 --group main:6761218048 --partition system:readonly:$(ls -nl system.img | awk '{print $5}'):main --image system=system.img --partition vendor:readonly:$(ls -nl vendor.img | awk '{print $5}'):main --image vendor=vendor.img --partition product:readonly:$(ls -nl product.img | awk '{print $5}'):main --image product=product.img --partition system_ext:readonly:$(ls -nl system_ext.img | awk '{print $5}'):main --image system_ext=system_ext.img --sparse --output super.img
+
     - name: Creating tar and compressing to 7z
-  run: |
-    cd lpbinary/binary
-    tar -cvf super.tar super.img
-    7z a ${{ github.event.inputs.NAME }} super.tar
+      run: |
+        cd lpbinary/binary
+        tar -cvf super.tar super.img
+        7z a "${{ github.event.inputs.NAME }}" super.tar
 
-      - name: Upload ROM as Artifact
-  uses: actions/upload-artifact@v4
-  with:
-    name: LineageOS-21-Non-VNDKLite
-    path: lpbinary/binary/${{ github.event.inputs.NAME }}
-    retention-days: 7
-
-     - name: Cleanup
-  run: |
-    rm -rf lpbinary/binary/super.img
-    rm -rf lpbinary/binary/super.tar
+    - name: Upload ROM as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: LineageOS-21-Non-VNDKLite
+        path: lpbinary/binary/${{ github.event.inputs.NAME }}
+        retention-days: 7
 
     - name: Upload to Release
       uses: softprops/action-gh-release@v1
@@ -102,9 +98,14 @@ jobs:
         name: ${{ github.event.inputs.NAME }}-${{ github.run_id }}
         tag_name: ${{ github.run_id }}
         body: |
-            Device: Samsung Galaxy A03
-            Version: ${{ github.event.inputs.VERSION }}
-            Rom Name: ${{ github.event.inputs.NAME }}
-            Flash: Extract the 7z file and flash through ODIN in AP Section.
+          Device: Samsung Galaxy A03
+          Version: ${{ github.event.inputs.VERSION }}
+          Rom Name: ${{ github.event.inputs.NAME }}
+          Flash: Extract the 7z file and flash through ODIN in AP Section.
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cleanup
+      run: |
+        rm -rf lpbinary/binary/super.img
+        rm -rf lpbinary/binary/super.tar
