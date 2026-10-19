@@ -1,5 +1,4 @@
-
-name: Custom Rom Builder Samsung Galaxy A03
+[20/10/2026 00:48] El-Fateh II: name: Custom Rom Builder Samsung Galaxy A03
 
 permissions:
   contents: write
@@ -11,195 +10,250 @@ on:
 
   workflow_dispatch:
     inputs:
-
       GSI:
-        description: 'GSI Image Direct Link'
+        description: "GSI Image Direct Link"
         required: true
-        default: 'https://sourceforge.net/projects/andyyan-gsi/files/lineage-21-pre-qpr2-td/lineage-21.0-20260614-UNOFFICIAL-arm64_bgN-signed.img.gz/download'
+        default: "https://sourceforge.net/projects/andyyan-gsi/files/lineage-21-pre-qpr2-td/lineage-21.0-20260614-UNOFFICIAL-arm64_bgN-signed.img.gz/download"
 
       NAME:
-        description: 'Rom Name'
+        description: "Rom Name"
         required: true
-        default: 'LineageOS-21-Non-VNDKLite'
+        default: "LineageOS-21-Non-VNDKLite"
 
       VERSION:
-        description: 'Baseband Version'
+        description: "Baseband Version"
         required: true
-        default: 'A035FXXS9CYG1'
+        default: "A035FXXS9CYG1"
 
       VENDOR:
-        description: 'Enter Direct Link Of Your Version Vendor'
+        description: "Direct Link Of Your Vendor Image"
         required: true
-        default: 'https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/vendor.img'
+        default: "https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/vendor.img"
 
 jobs:
   Build:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Install Dependencies
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y \
+            zip \
+            xz-utils \
+            unzip \
+            p7zip-full \
+            wget \
+            curl \
+            file \
+            android-sdk-libsparse-utils
 
-    - name: Install Dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y zip xz-utils unzip p7zip-full wget file android-sdk-libsparse-utils
+      - name: Installing Tools
+        run: |
+          set -e
+          git clone https://github.com/Exynos-nigg/lpunpack-lpmake-mirror.git lpbinary
+          cd lpbinary
+          bash install.sh
 
-    - name: Installing Tools
-      run: |
-        git clone https://github.com/Exynos-nigg/lpunpack-lpmake-mirror.git lpbinary
-        cd lpbinary
-        bash install.sh
+      - name: Downloading Your GSI And Extracting
+        env:
+          GSI_URL: ${{ inputs.GSI || 'https://sourceforge.net/projects/andyyan-gsi/files/lineage-21-pre-qpr2-td/lineage-21.0-20260614-UNOFFICIAL-arm64_bgN-signed.img.gz/download' }}
+        run: |
+          set -e
+          cd lpbinary/binary
 
-    - name: Downloading Your GSI And Extracting
-      run: |
-        cd lpbinary/binary
+          echo "Downloading GSI..."
+          wget --max-redirect=20 -O gsi_archive "$GSI_URL"
 
-        echo "Downloading GSI..."
-        wget -O gsi_archive "${{ github.event.inputs.GSI }}"
+          mkdir -p sys
 
-        mkdir -p sys
+          if unzip -t gsi_archive >/dev/null 2>&1; then
+            echo "GSI detected as ZIP"
+            unzip -o gsi_archive -d sys/
 
-        if unzip -t gsi_archive >/dev/null 2>&1; then
-          echo "GSI detected as ZIP"
-          unzip gsi_archive -d sys/
+          elif file gsi_archive | grep -qi 'gzip'; then
+            echo "GSI detected as GZIP"
+            gzip -dc gsi_archive > sys/gsi.img
 
-        elif file gsi_archive | grep -qi 'gzip'; then
-          echo "GSI detected as GZIP"
-          mv gsi_archive sys/gsi.img.gz
-          cd sys
-          gunzip gsi.img.gz
-          cd ..
+          elif file gsi_archive | grep -qi 'XZ'; then
+            echo "GSI detected as XZ"
+            xz -dc gsi_archive > sys/gsi.img
 
-        elif file gsi_archive | grep -qi 'XZ'; then
-          echo "GSI detected as XZ"
-          mv gsi_archive sys/gsi.img.xz
-          cd sys
-          unxz gsi.img.xz
-          cd ..
+          elif file gsi_archive | grep -qi 'Android sparse'; then
+            echo "GSI detected as Android sparse image"
+            simg2img gsi_archive sys/gsi.img
 
-        else
-          echo "ERROR: Unsupported GSI format!"
-          file gsi_archive
-          exit 1
-        fi
+          elif file gsi_archive | grep -qi 'filesystem'; then
+            echo "GSI detected as a raw image"
+            cp gsi_archive sys/gsi.img
 
-        if [ -f sys/system.img ]; then
-          mv sys/system.img system.img
-        else
-          IMG=$(find sys -maxdepth 1 -type f -name "*.img" | head -n 1)
-
-          if [ -z "$IMG" ]; then
-            echo "ERROR: No system.img found!"
-            find sys -type f
+          else
+            echo "::error::Unsupported GSI format or invalid download"
+            file gsi_archive
+            head -c 300 gsi_archive || true
             exit 1
           fi
 
-          mv "$IMG" system.img
-        fi
+          if [ -f sys/system.img ]; then
+            mv sys/system.img system.img
+          else
+            IMG=$(find sys -maxdepth 2 -type f -name "*.img" | head -n 1)
 
-        rm -rf sys gsi_archive
+            if [ -z "$IMG" ]; then
+              echo "::error::No system image found"
+              find sys -type f
+              exit 1
+            fi
 
-        echo "GSI prepared successfully:"
-        ls -lh system.img
+            cp "$IMG" system.img
+          fi
 
-    - name: Preparing Files
-      run: |
-        cd lpbinary/binary
+          rm -rf sys gsi_archive
 
-        echo "Downloading vendor.img..."
-        wget -O vendor.img "${{ github.event.inputs.VENDOR }}"
+          test -s system.img
 
-        echo "Downloading product.img..."
-        wget -O product.img "https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/product.img"
+          echo "GSI prepared successfully:"
+          ls -lh system.img
+          file system.img
 
-        echo "Downloading system_ext.img..."
-        wget -O system_ext.img "https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/system_ext.img"
+      - name: Preparing Files
+        env:
+          VENDOR_URL: ${{ inputs.VENDOR || 'https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/vendor.img' }}
+        run: |
+          set -e
+          cd lpbinary/binary
 
-        echo "Checking downloaded files..."
-        ls -lh system.img vendor.img product.img system_ext.img
+          echo "Downloading vendor.img..."
+          wget --max-redirect=20 -O vendor.img "$VENDOR_URL"
 
-        test -s system.img
-        test -s vendor.img
-        test -s product.img
-        test -s system_ext.img
+          echo "Downloading product.img..."
+          wget --max-redirect=20 -O product.img \
+            "https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/product.img/download"
 
-        echo "All required images are present."
+          echo "Downloading system_ext.img..."
+          wget --max-redirect=20 -O system_ext.img \
+            "https://sourceforge.net/projects/a03-file/files/A035FXXS9CYG1/system_ext.img/download"
+[20/10/2026 00:48] El-Fateh II: echo "Checking downloaded files..."
 
-    - name: Packing
-      run: |
-        cd lpbinary/binary
+          for IMG in system.img vendor.img product.img system_ext.img; do
+            if [ ! -s "$IMG" ]; then
+              echo "::error::Missing or empty image: $IMG"
+              exit 1
+            fi
 
-        SYSTEM_SIZE=$(stat -c%s system.img)
-        VENDOR_SIZE=$(stat -c%s vendor.img)
-        PRODUCT_SIZE=$(stat -c%s product.img)
-        SYSTEM_EXT_SIZE=$(stat -c%s system_ext.img)
+            echo "File information: $IMG"
+            ls -lh "$IMG"
+            file "$IMG"
+          done
 
-        echo "System size: ${SYSTEM_SIZE}"
-        echo "Vendor size: ${VENDOR_SIZE}"
-        echo "Product size: ${PRODUCT_SIZE}"
-        echo "System_ext size: ${SYSTEM_EXT_SIZE}"
+          echo "All required images are present."
 
-        ./lpmake \
-          --metadata-size 65536 \
-          --super-name super \
-          --metadata-slots 3 \
-          --device super:6763315200 \
-          --group main:6761218048 \
-          --partition system:readonly:${SYSTEM_SIZE}:main \
-          --image system=system.img \
-          --partition vendor:readonly:${VENDOR_SIZE}:main \
-          --image vendor=vendor.img \
-          --partition product:readonly:${PRODUCT_SIZE}:main \
-          --image product=product.img \
-          --partition system_ext:readonly:${SYSTEM_EXT_SIZE}:main \
-          --image system_ext=system_ext.img \
-          --sparse \
-          --output super.img
+      - name: Packing
+        run: |
+          set -e
+          cd lpbinary/binary
 
-        echo "super.img created successfully:"
-        ls -lh super.img
+          SYSTEM_SIZE=$(stat -c%s system.img)
+          VENDOR_SIZE=$(stat -c%s vendor.img)
+          PRODUCT_SIZE=$(stat -c%s product.img)
+          SYSTEM_EXT_SIZE=$(stat -c%s system_ext.img)
 
-    - name: Creating tar and compressing to 7z
-      run: |
-        cd lpbinary/binary
+          echo "System size: ${SYSTEM_SIZE}"
+          echo "Vendor size: ${VENDOR_SIZE}"
+          echo "Product size: ${PRODUCT_SIZE}"
+          echo "System_ext size: ${SYSTEM_EXT_SIZE}"
 
-        echo "Creating super.tar..."
-        tar -cvf super.tar super.img
+          ./lpmake \
+            --metadata-size 65536 \
+            --super-name super \
+            --metadata-slots 3 \
+            --device super:6763315200 \
+            --group main:6761218048 \
+            --partition system:readonly:${SYSTEM_SIZE}:main \
+            --image system=system.img \
+            --partition vendor:readonly:${VENDOR_SIZE}:main \
+            --image vendor=vendor.img \
+            --partition product:readonly:${PRODUCT_SIZE}:main \
+            --image product=product.img \
+            --partition system_ext:readonly:${SYSTEM_EXT_SIZE}:main \
+            --image system_ext=system_ext.img \
+            --sparse \
+            --output super.img
 
-        echo "Creating 7z archive..."
-        7z a "${{ github.event.inputs.NAME }}.7z" super.tar
+          echo "super.img created successfully:"
+          ls -lh super.img
 
-        echo "Final ROM:"
-        ls -lh "${{ github.event.inputs.NAME }}.7z"
+      - name: Creating tar and compressing to 7z
+        env:
+          ROM_NAME: ${{ inputs.NAME || 'LineageOS-21-Non-VNDKLite' }}
+        run: |
+          set -e
+          cd lpbinary/binary
 
-    - name: Upload ROM as Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: LineageOS-21-Non-VNDKLite
-        path: lpbinary/binary/${{ github.event.inputs.NAME }}.7z
-        if-no-files-found: error
-        retention-days: 7
+          echo "Creating super.tar..."
+          tar -cvf super.tar super.img
 
-    - name: Upload to Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: lpbinary/binary/${{ github.event.inputs.NAME }}.7z
-        name: ${{ github.event.inputs.NAME }}-${{ github.run_id }}
-        tag_name: ${{ github.run_id }}
-        body: |
-          Device: Samsung Galaxy A03
-          Version: ${{ github.event.inputs.VERSION }}
-          Rom Name: ${{ github.event.inputs.NAME }}
+          echo "Creating 7z archive..."
+          7z a "${ROM_NAME}.7z" super.tar
 
-          Flash:
-          Extract the 7z file and flash super.tar through ODIN in AP Section.
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "Final ROM:"
+          ls -lh "${ROM_NAME}.7z"
 
-    - name: Cleanup
-      run: |
-        rm -rf lpbinary/binary/super.img
-        rm -rf lpbinary/binary/super.tar
+      - name: Verify ROM archive
+        env:
+          ROM_NAME: ${{ inputs.NAME || 'LineageOS-21-Non-VNDKLite' }}
+        run: |
+          set -e
+          FILE="lpbinary/binary/${ROM_NAME}.7z"
 
+          if [ ! -s "$FILE" ]; then
+            echo "::error::ROM archive not found or empty"
+            exit 1
+          fi
+
+          echo "ROM archive size:"
+          ls -lh "$FILE"
+
+          echo "Exact size in bytes:"
+          stat -c '%s' "$FILE"
+
+          echo "Verifying 7z archive..."
+          7z t "$FILE"
+
+          echo "Archive verification completed successfully."
+
+      - name: Upload ROM as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.NAME || 'LineageOS-21-Non-VNDKLite' }}-${{ github.run_id }}
+          path: lpbinary/binary/${{ inputs.NAME || 'LineageOS-21-Non-VNDKLite' }}.7z
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: lpbinary/binary/${{ inputs.NAME || 'LineageOS-21-Non-VNDKLite' }}.7z
+          name: ${{ inputs.NAME || 'LineageOS-21-Non-VNDKLite' }}-${{ github.run_id }}
+          tag_name: build-${{ github.run_id }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          body: |
+            Device: Samsung Galaxy A03 (SM-A035F)
+            Version: ${{ inputs.VERSION || 'A035FXXS9CYG1' }}
+            ROM Name: ${{ inputs.NAME || 'LineageOS-21-Non-VNDKLite' }}
+
+            Installation:
+            Extract the 7z archive and flash super.tar through Odin in the AP section.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f lpbinary/binary/super.img
+          rm -f lpbinary/binary/super.tar
