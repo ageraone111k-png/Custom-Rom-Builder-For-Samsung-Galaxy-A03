@@ -1,4 +1,4 @@
-[20/10/2026 01:05] El-Fateh II: name: Custom Rom Builder Samsung Galaxy A03
+name: Custom Rom Builder Samsung Galaxy A03
 
 permissions:
   contents: write
@@ -133,9 +133,10 @@ jobs:
         run: |
           set -e
           cd lpbinary/binary
-[20/10/2026 01:05] El-Fateh II: SYSTEM_SIZE=$(stat -c%s system.img)
+
+          SYSTEM_SIZE=$(stat -c%s system.img)
           VENDOR_SIZE=$(stat -c%s vendor.img)
-         PRODUCT_SIZE=$(stat -c%s product.img)
+          PRODUCT_SIZE=$(stat -c%s product.img)
           SYSTEM_EXT_SIZE=$(stat -c%s system_ext.img)
 
           ./lpmake \
@@ -176,4 +177,37 @@ jobs:
           set -e
           FILE="lpbinary/binary/${ROM_NAME}.7z"
 
-          test -s "$FILE
+          test -s "$FILE"
+          stat -c '%s bytes' "$FILE"
+          7z t "$FILE"
+
+      - name: Upload ROM as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.NAME }}-${{ github.run_id }}
+          path: lpbinary/binary/${{ inputs.NAME }}.7z
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: lpbinary/binary/${{ inputs.NAME }}.7z
+          name: ${{ inputs.NAME }}-${{ github.run_id }}
+          tag_name: build-${{ github.run_id }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          body: |
+            Device: Samsung Galaxy A03 (SM-A035F)
+            Version: ${{ inputs.VERSION }}
+            ROM Name: ${{ inputs.NAME }}
+
+            Extract the 7z archive and inspect super.tar before flashing.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f lpbinary/binary/super.img
+          rm -f lpbinary/binary/super.tar
